@@ -49,6 +49,10 @@ const Prompt = () => {
 
   const handleGenerate = async () => {
     console.log("Start generating story");
+    if (storyName === "" || instruction === "") {
+      alert("Story name and prompt can not be empty");
+      return;
+    }
     // get only the base64 strings
     const imagesString = images.map((image) => image.base64);
     const request = await fetch("http://localhost:3000/generate", {
