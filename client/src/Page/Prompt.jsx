@@ -53,6 +53,7 @@ const Prompt = () => {
       alert("Story name and prompt can not be empty");
       return;
     }
+    console.log(images);
     // get only the base64 strings
     const imagesString = images.map((image) => image.base64);
     const request = await fetch("http://localhost:3000/generate", {
@@ -64,7 +65,7 @@ const Prompt = () => {
     });
     const data = await request.json();
     console.log(data);
-    window.location.assign("/prompt");
+    // window.location.assign("/prompt");
   };
 
   return (
