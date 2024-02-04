@@ -65,7 +65,7 @@ const Prompt = () => {
     });
     const data = await request.json();
     console.log(data);
-    // window.location.assign("/prompt");
+    window.location.assign("/story?storyName=" + storyName);
   };
 
   return (

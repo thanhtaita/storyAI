@@ -1,0 +1,24 @@
+.swiper-slide {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  margin: 10px;
+  height: 600px;
+  width: 300px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #d9d9d9;
+  transition: 0.3s;
+  cursor: pointer;
+}
+
+.swiper-slide:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+}

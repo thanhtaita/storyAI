@@ -4,11 +4,20 @@
 // const admin = require("firebase-admin");
 import express from "express";
 import cors from "cors";
+import axios from "axios";
+import fs from "fs";
 import { db, storage } from "./config.js";
 import { ref } from "firebase/storage";
-import { doc, setDoc, collection, addDoc, getDoc } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  collection,
+  addDoc,
+  getDoc,
+  getDocs,
+} from "firebase/firestore";
 import { getDownloadURL, uploadString } from "firebase/storage";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 const app = express();
 const port = 3000;
 const openai = new OpenAI();
@@ -30,6 +39,15 @@ const jsonParse = (jsonString) => {
   return false;
 };
 
+async function downloadImageAsBuffer(imageUrl) {
+  try {
+    const response = await axios.get(imageUrl, { responseType: "arraybuffer" });
+    return response.data; // This is a buffer
+  } catch (error) {
+    console.error("Failed to download image", error);
+    throw error;
+  }
+}
 async function generateCaptions(prompt) {
   const completion = await openai.chat.completions.create({
     messages: [
@@ -50,7 +68,12 @@ async function generateCaptions(prompt) {
   return jsonParse(`${completion.choices[0].message.content}`);
 }
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
+  console.log(
+    await downloadImageAsBuffer(
+      "https://firebasestorage.googleapis.com/v0/b/storyai-b4fb6.appspot.com/o/storyAI%2Fimage01706978788410.png?alt=media&token=d2e900a1-88b1-452f-a58d-bb9b5bdceedd"
+    )
+  );
   res.json({ message: "Hi, server is running" });
 });
 
@@ -111,62 +134,66 @@ const generateImages = async (storyName) => {
       console.log("data exist");
       const story = storyData.data();
       const captions = JSON.parse(story.captions);
-      const imageLinks = [];
       const imageLinksPromise = [];
 
       for (let i = 1; i <= 4; i++) {
         const imagePath = story[`image${i}`];
         const imageRef = ref(storage, imagePath);
-        imageLinksPromise.push(
-          getDownloadURL(imageRef).then((url) => {
-            imageLinks.push(url);
-          })
-        );
+        imageLinksPromise.push(getDownloadURL(imageRef));
       }
 
-      await Promise.all(imageLinksPromise);
+      const imageLinks = await Promise.all(imageLinksPromise);
       console.log("imageLinks", imageLinks);
       if (imageLinks.length < 4) {
         return { error: "Not enough images" };
       }
       // generate images 4 times wit accumulative images since we have prompt limited by 1000 characters
       // first image
-      const response1 = await openai.images
-        .edit({
-          image: [imageLinks[0]],
-          prompt: `Generate an image that represents the following text: ${captions.text1}. This text is a part of a story and this is the summary and the visual aspect of the story ${captions.visuals}`,
-        })
-        .then((response) => {
-          console.log("response1", response.data.url);
-        });
+      // let file;
+      // try {
+      //   file = await toFile(downloadImageAsBuffer(imageLinks[0]));
+      // } catch (error) {
+      //   console.log(error.message);
+      // }
 
-      // second image
-      const response2 = await openai.images.edit({
-        image: [imageLinks[0], imageLinks[1]],
-        prompt: `Generate an image that represents the following text: ${captions.text2}. This text is a part of a story and this is the summary and the visual aspect of the story ${captions.visuals}`,
-      });
-
-      // third image
-      const response3 = await openai.images.edit({
-        image: [imageLinks[0], imageLinks[1], imageLinks[2]],
-        prompt: `Generate an image that represents the following text: ${captions.text3}. This text is a part of a story and this is the summary and the visual aspect of the story ${captions.visuals}`,
-      });
-
-      // fourth image
-      const response4 = await openai.images.edit({
-        image: [imageLinks[0], imageLinks[1], imageLinks[2], imageLinks[3]],
-        prompt: `Generate an image that represents the following text: ${captions.text4}. This text is a part of a story and this is the summary and the visual aspect of the story ${captions.visuals}`,
-      });
-
-      console.log("response1", response1.data.url);
-      console.log("response2", response2.data.url);
-      console.log("response3", response3.data.url);
-      console.log("response4", response4.data.url);
+      try {
+        for (let i = 0; i < 4; i++) {
+          const response = await openai.images.generate({
+            model: "dall-e-3",
+            prompt: `I'm creating a picture-caption story that includes 4 images, each with its own caption. Below are 4 texts representing the visual and thematic elements of the story. Please generate image ${
+              i + 1
+            } for the text${
+              i + 1
+            }. Picture includes no text. The visual aspects mentioned should guide the creation of the general theme. The text${
+              i + 1
+            } is: ${
+              captions[`text${i + 1}`]
+            }. This is the whole story: ${captions}`,
+            n: 1,
+          });
+          console.log("response", response);
+          await setDoc(
+            storyDoc,
+            {
+              [`image${i + 1}GWhole`]: JSON.stringify(response.data[0]),
+              [`image${i + 1}G`]: response.data[0].url,
+            },
+            { merge: true }
+          );
+        }
+        console.log("Images generated successfully");
+        return { status: true };
+      } catch (error) {
+        console.log(error.message);
+        return { status: false };
+      }
     } else {
-      return { error: "Story not found" };
+      console.log("Story not found");
+      return { status: false };
     }
   } catch (error) {
-    return { error: error.message };
+    console.log(error.message);
+    return { status: false };
   }
 };
 
@@ -216,10 +243,41 @@ app.post("/generate", async (req, res) => {
         }
       );
     }
-    res.json("Refereced images and captions stored successfully");
+    console.log("Refereced images and captions stored successfully");
+    if (generateImages(storyName).status) {
+      return res.json("Generate images and captionssuccessfully");
+    }
+    return res.json("Generate images and captions failed");
   } catch (error) {
     res.json({ error: error.message });
   }
+});
+
+// get story data
+app.get("/story", async (req, res) => {
+  const storyName = req.query.storyName;
+  console.log(storyName);
+  const storyDoc = doc(db, "storyAI", storyName);
+  const storyData = await getDoc(storyDoc);
+  if (storyData.exists()) {
+    console.log("Document data:", storyData.data());
+    res.json({ data: storyData.data() });
+  } else {
+    console.log("No such document!");
+    res.json({ data: "" });
+  }
+});
+
+// get all story names
+app.get("/stories", async (req, res) => {
+  const storyRef = collection(db, "storyAI");
+  console.log(storyRef);
+  const storyData = await getDocs(storyRef);
+  const stories = [];
+  storyData.forEach((doc) => {
+    stories.push(doc.id);
+  });
+  res.json({ data: stories });
 });
 
 app.listen(port, () => {

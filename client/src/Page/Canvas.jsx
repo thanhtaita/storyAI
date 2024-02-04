@@ -19,6 +19,7 @@ const Canvas = () => {
       hoverCursor: "pointer",
       height: 500,
       width: 500,
+      backgroundColor: "#242424",
     });
 
     canvasRef.current = canvas;
