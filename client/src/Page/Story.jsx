@@ -25,19 +25,25 @@ const Story = () => {
         alert("Story not found");
         window.location.assign("/");
       }
+
       const imagesTemp = [];
       const captionsTemp = [];
-      const captions = JSON.parse(data.data.captions);
-      for (let i = 0; i < 4; i++) {
-        imagesTemp.push(data.data[`image${i + 1}G`]);
-        captionsTemp.push(captions[`text${i + 1}`]);
-      }
-      console.log(imagesTemp);
-      console.log(captionsTemp);
-      setImages(imagesTemp);
-      setCaptions(captionsTemp);
-    };
+      try {
+        const captionsParse = await JSON.parse(data.data.captions);
+        const imagesParse = await JSON.parse(data.data.generatedImgs);
 
+        for (let i = 0; i < 4; i++) {
+          imagesTemp.push(imagesParse[`image${i + 1}`]);
+          captionsTemp.push(captionsParse[`text${i + 1}`]);
+        }
+        console.log(imagesTemp);
+        console.log(captionsTemp);
+        setImages(imagesTemp);
+        setCaptions(captionsTemp);
+      } catch (e) {
+        console.log(e);
+      }
+    };
     getStory();
   }, [storyName]);
 
@@ -63,7 +69,10 @@ const Story = () => {
         className="mySwiper"
       >
         {images.map((image, index) => (
-          <SwiperSlide key={index}>
+          <SwiperSlide
+            className="flex flex-col justify-center items-center hover:scale-105 transition-all duration-300 ease-in-out hover:shadow-2xl"
+            key={index}
+          >
             <img className="w-[350px]" src={image} alt="image1" />
             <p>{captions[index]}</p>
           </SwiperSlide>

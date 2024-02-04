@@ -18,6 +18,7 @@ import {
 } from "firebase/firestore";
 import { getDownloadURL, uploadString } from "firebase/storage";
 import OpenAI, { toFile } from "openai";
+import { get } from "http";
 const app = express();
 const port = 3000;
 const openai = new OpenAI();
@@ -41,7 +42,9 @@ const jsonParse = (jsonString) => {
 
 async function downloadImageAsBuffer(imageUrl) {
   try {
+    console.log("downloading image");
     const response = await axios.get(imageUrl, { responseType: "arraybuffer" });
+    console.log(response.data);
     return response.data; // This is a buffer
   } catch (error) {
     console.error("Failed to download image", error);
@@ -125,6 +128,66 @@ app.get("/generateImages", async (req, res) => {
   }
 });
 
+// test store images
+app.post("/storeImages", async (req, res) => {
+  console.log("server storing images");
+  const imageURLs = [
+    "https://firebasestorage.googleapis.com/v0/b/storyai-b4fb6.appspot.com/o/storyAI%2Fimg1.png?alt=media&token=e875c217-ef61-435b-95ba-ab0acbdf4495",
+    "https://firebasestorage.googleapis.com/v0/b/storyai-b4fb6.appspot.com/o/storyAI%2Fimg2.png?alt=media&token=94633441-9c56-4c94-9e66-97bb4c45d147",
+    "https://firebasestorage.googleapis.com/v0/b/storyai-b4fb6.appspot.com/o/storyAI%2Fimg3.png?alt=media&token=9932a712-aec5-4470-b80f-3817bafc3a72",
+    "https://firebasestorage.googleapis.com/v0/b/storyai-b4fb6.appspot.com/o/storyAI%2Fimg4.png?alt=media&token=761b79ea-8785-4f67-a16c-e6c99d921a89",
+  ];
+  const storyName = "white switches";
+  if (storeImages(imageURLs, storyName)) {
+    return res.json("Images stored successfully");
+  }
+  return res.json("Images stored failed");
+});
+
+// convert buffer to data_url base 64 string
+const bufferToDataUrl = (buffer) => {
+  const base64String = buffer.toString("base64");
+  return `data:image/png;base64,${base64String}`;
+};
+
+// store the generated images to storage
+const storeImages = async (imageURLs, storyName) => {
+  const imageObjs = {};
+  try {
+    console.log("download images as buffer");
+    for (let i = 0; i < imageURLs.length; i++) {
+      const buffer = await downloadImageAsBuffer(imageURLs[i]);
+      const fileName = `image${i + 1}` + Date.now() + ".png";
+      const imageRef = ref(storage, `storyAI/${fileName}`);
+      console.log("uploading images to storage");
+      await uploadString(imageRef, bufferToDataUrl(buffer), "data_url").then(
+        async (snapshot) => {
+          console.log("Uploaded a data_url string!");
+          try {
+            getDownloadURL(imageRef).then((url) => {
+              imageObjs[`image${i + 1}`] = url;
+            });
+          } catch (error) {
+            console.log(error.message);
+          }
+        }
+      );
+    }
+    const generatedImages = { generatedImgs: JSON.stringify(imageObjs) };
+    const storyDoc = doc(db, "storyAI", storyName);
+    try {
+      await setDoc(storyDoc, generatedImages, { merge: true });
+    } catch (error) {
+      console.log(error.message);
+    }
+    console.log("Refereced images stored successfully");
+    return true;
+  } catch (error) {
+    console.log(error.message);
+    return false;
+  }
+};
+
 // start generate images
 const generateImages = async (storyName) => {
   const storyDoc = doc(db, "storyAI", storyName);
@@ -134,19 +197,19 @@ const generateImages = async (storyName) => {
       console.log("data exist");
       const story = storyData.data();
       const captions = JSON.parse(story.captions);
-      const imageLinksPromise = [];
+      // const imageLinksPromise = [];
 
-      for (let i = 1; i <= 4; i++) {
-        const imagePath = story[`image${i}`];
-        const imageRef = ref(storage, imagePath);
-        imageLinksPromise.push(getDownloadURL(imageRef));
-      }
+      // for (let i = 1; i <= 4; i++) {
+      //   const imagePath = story[`image${i}`];
+      //   const imageRef = ref(storage, imagePath);
+      //   imageLinksPromise.push(getDownloadURL(imageRef));
+      // }
 
-      const imageLinks = await Promise.all(imageLinksPromise);
-      console.log("imageLinks", imageLinks);
-      if (imageLinks.length < 4) {
-        return { error: "Not enough images" };
-      }
+      // const imageLinks = await Promise.all(imageLinksPromise);
+      // console.log("imageLinks", imageLinks);
+      // if (imageLinks.length < 4) {
+      //   return { error: "Not enough images" };
+      // }
       // generate images 4 times wit accumulative images since we have prompt limited by 1000 characters
       // first image
       // let file;
@@ -156,6 +219,7 @@ const generateImages = async (storyName) => {
       //   console.log(error.message);
       // }
 
+      const imageURLs = [];
       try {
         for (let i = 0; i < 4; i++) {
           const response = await openai.images.generate({
@@ -172,17 +236,24 @@ const generateImages = async (storyName) => {
             n: 1,
           });
           console.log("response", response);
+          imageURLs.push(response.data[0].url);
           await setDoc(
             storyDoc,
             {
-              [`image${i + 1}GWhole`]: JSON.stringify(response.data[0]),
-              [`image${i + 1}G`]: response.data[0].url,
+              [`image${i + 1}_prompt`]: JSON.stringify(
+                response.data[0].revised_prompt
+              ),
             },
             { merge: true }
           );
         }
         console.log("Images generated successfully");
-        return { status: true };
+        console.log(imageURLs);
+        // store images to storage
+        if (storeImages(imageURLs, storyName)) {
+          return { status: true };
+        }
+        return { status: false };
       } catch (error) {
         console.log(error.message);
         return { status: false };
